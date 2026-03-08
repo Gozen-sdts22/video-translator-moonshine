@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SubGen - 動画字幕自動生成ツール</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>SubGen</h1>
+        <p>動画字幕自動生成ツール — Moonshine ASR + 翻訳API</p>
+    </header>
+
+    <!-- Upload Card -->
+    <div class="card" id="upload-card">
+        <h2>動画ファイルをアップロード</h2>
+        <form id="upload-form" enctype="multipart/form-data">
+            <div class="upload-area" id="drop-zone">
+                <div class="icon">&#128193;</div>
+                <p>クリックまたはドラッグ＆ドロップで動画ファイルを選択</p>
+                <p style="font-size:0.8rem; margin-top:0.25rem">対応形式: MP4, MKV, AVI, MOV</p>
+                <div class="file-name" id="file-name"></div>
+                <input type="file" id="video-input" name="video" accept="video/*" hidden>
+            </div>
+
+            <div class="form-grid" style="margin-top:1rem">
+                <div class="form-group">
+                    <label for="language">音声の言語</label>
+                    <select id="language" name="language">
+                        <option value="ja" selected>日本語 (ja)</option>
+                        <option value="en">英語 (en)</option>
+                        <option value="zh">中国語 (zh)</option>
+                        <option value="ko">韓国語 (ko)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="format">出力形式</label>
+                    <select id="format" name="format">
+                        <option value="ass" selected>ASS (話者色分け)</option>
+                        <option value="srt">SRT (汎用)</option>
+                        <option value="both">両方</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="translate_to">翻訳先言語</label>
+                    <select id="translate_to" name="translate_to">
+                        <option value="" selected>翻訳なし</option>
+                        <option value="zh">中国語 (zh)</option>
+                        <option value="en">英語 (en)</option>
+                        <option value="ja">日本語 (ja)</option>
+                        <option value="ko">韓国語 (ko)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="translate_api">翻訳API</label>
+                    <select id="translate_api" name="translate_api">
+                        <option value="deepl" selected>DeepL</option>
+                        <option value="google">Google Cloud Translation</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="num_speakers">話者数</label>
+                    <select id="num_speakers" name="num_speakers">
+                        <option value="auto" selected>自動検出</option>
+                        <option value="1">1人</option>
+                        <option value="2">2人</option>
+                        <option value="3">3人</option>
+                        <option value="4">4人</option>
+                    </select>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary" id="submit-btn" disabled>
+                字幕を生成する
+            </button>
+        </form>
+    </div>
+
+    <!-- Progress Card -->
+    <div class="card progress-section" id="progress-card">
+        <h2>処理中...</h2>
+        <div class="progress-bar-wrap">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <p class="progress-step" id="progress-step">待機中...</p>
+    </div>
+
+    <!-- Result Card -->
+    <div class="card result-section" id="result-card">
+        <h2>生成結果</h2>
+
+        <div id="error-area"></div>
+
+        <div id="download-area" style="display:none">
+            <h3 style="font-size:0.95rem; margin-bottom:0.5rem">ダウンロード</h3>
+            <ul class="file-list" id="file-list"></ul>
+        </div>
+
+        <div id="preview-area" style="display:none">
+            <div class="tabs" id="preview-tabs"></div>
+            <div id="preview-contents"></div>
+        </div>
+
+        <button class="btn-primary" id="reset-btn" style="margin-top:1rem; background:#64748b">
+            新しい動画を処理する
+        </button>
+    </div>
+</div>
+
+<script>
+(function() {
+    const dropZone = document.getElementById("drop-zone");
+    const videoInput = document.getElementById("video-input");
+    const fileNameEl = document.getElementById("file-name");
+    const form = document.getElementById("upload-form");
+    const submitBtn = document.getElementById("submit-btn");
+    const progressCard = document.getElementById("progress-card");
+    const progressBar = document.getElementById("progress-bar");
+    const progressStep = document.getElementById("progress-step");
+    const resultCard = document.getElementById("result-card");
+    const uploadCard = document.getElementById("upload-card");
+    const resetBtn = document.getElementById("reset-btn");
+
+    let selectedFile = null;
+
+    // Drag & Drop
+    dropZone.addEventListener("click", () => videoInput.click());
+    dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+    dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("drag-over");
+        if (e.dataTransfer.files.length > 0) {
+            selectedFile = e.dataTransfer.files[0];
+            fileNameEl.textContent = selectedFile.name;
+            submitBtn.disabled = false;
+        }
+    });
+    videoInput.addEventListener("change", () => {
+        if (videoInput.files.length > 0) {
+            selectedFile = videoInput.files[0];
+            fileNameEl.textContent = selectedFile.name;
+            submitBtn.disabled = false;
+        }
+    });
+
+    // Submit
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!selectedFile) return;
+
+        const formData = new FormData();
+        formData.append("video", selectedFile);
+        formData.append("language", document.getElementById("language").value);
+        formData.append("format", document.getElementById("format").value);
+        formData.append("translate_to", document.getElementById("translate_to").value);
+        formData.append("translate_api", document.getElementById("translate_api").value);
+        formData.append("num_speakers", document.getElementById("num_speakers").value);
+
+        uploadCard.style.display = "none";
+        progressCard.classList.add("active");
+        progressBar.style.width = "10%";
+        progressBar.className = "progress-bar";
+
+        try {
+            const res = await fetch("/api/upload", { method: "POST", body: formData });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            pollStatus(data.job_id);
+        } catch (err) {
+            showError(err.message);
+        }
+    });
+
+    // Poll status
+    const stepProgress = {
+        "待機中...": 10,
+        "音声抽出中...": 20,
+        "音声認識中...": 40,
+        "話者分離中...": 60,
+        "翻訳中": 75,
+        "字幕ファイル生成中...": 90,
+        "完了": 100,
+    };
+
+    function pollStatus(jobId) {
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/status/${jobId}`);
+                const data = await res.json();
+
+                // Update progress
+                let pct = 10;
+                for (const [key, val] of Object.entries(stepProgress)) {
+                    if (data.step && data.step.includes(key.replace("...", ""))) pct = val;
+                }
+                progressBar.style.width = pct + "%";
+                progressStep.textContent = data.step || "処理中...";
+
+                if (data.status === "completed") {
+                    clearInterval(interval);
+                    progressBar.style.width = "100%";
+                    progressBar.classList.add("completed");
+                    progressStep.textContent = "完了!";
+                    setTimeout(() => showResult(jobId, data), 500);
+                } else if (data.status === "error") {
+                    clearInterval(interval);
+                    progressBar.classList.add("error");
+                    progressBar.style.width = "100%";
+                    showError(data.error || "不明なエラーが発生しました");
+                }
+            } catch (err) {
+                clearInterval(interval);
+                showError("サーバーとの通信に失敗しました");
+            }
+        }, 1000);
+    }
+
+    function showError(msg) {
+        progressCard.classList.remove("active");
+        resultCard.classList.add("active");
+        document.getElementById("error-area").innerHTML =
+            `<div class="error-msg">${msg}</div>`;
+    }
+
+    function showResult(jobId, data) {
+        progressCard.classList.remove("active");
+        resultCard.classList.add("active");
+
+        // Download links
+        if (data.files && data.files.length > 0) {
+            const dlArea = document.getElementById("download-area");
+            dlArea.style.display = "block";
+            const list = document.getElementById("file-list");
+            list.innerHTML = "";
+            data.files.forEach(f => {
+                const li = document.createElement("li");
+                li.innerHTML = `<a href="/api/download/${jobId}/${f}" download>&#128196; ${f}</a>`;
+                list.appendChild(li);
+            });
+        }
+
+        // Preview
+        if (data.preview) {
+            const previewArea = document.getElementById("preview-area");
+            previewArea.style.display = "block";
+            const tabsEl = document.getElementById("preview-tabs");
+            const contentsEl = document.getElementById("preview-contents");
+            tabsEl.innerHTML = "";
+            contentsEl.innerHTML = "";
+
+            const tabs = [];
+            if (data.preview.original) tabs.push({ key: "original", label: "原文" });
+            if (data.preview.translated) tabs.push({ key: "translated", label: "翻訳" });
+
+            tabs.forEach((tab, idx) => {
+                const btn = document.createElement("button");
+                btn.className = "tab-btn" + (idx === 0 ? " active" : "");
+                btn.textContent = tab.label;
+                btn.addEventListener("click", () => {
+                    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+                    document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+                    btn.classList.add("active");
+                    document.getElementById("tab-" + tab.key).classList.add("active");
+                });
+                tabsEl.appendChild(btn);
+
+                const content = document.createElement("div");
+                content.id = "tab-" + tab.key;
+                content.className = "tab-content" + (idx === 0 ? " active" : "");
+                content.innerHTML = buildPreviewTable(data.preview[tab.key]);
+                contentsEl.appendChild(content);
+            });
+        }
+    }
+
+    function buildPreviewTable(segments) {
+        if (!segments || segments.length === 0) return "<p>データなし</p>";
+        let html = `<table class="preview-table">
+            <thead><tr><th>開始</th><th>終了</th><th>話者</th><th>テキスト</th></tr></thead><tbody>`;
+        segments.forEach(s => {
+            const spk = s.speaker || "Speaker_1";
+            const num = spk.replace("Speaker_", "");
+            const cls = "s" + Math.min(parseInt(num) || 1, 4);
+            html += `<tr>
+                <td>${formatTime(s.start)}</td>
+                <td>${formatTime(s.end)}</td>
+                <td><span class="speaker-badge ${cls}">${spk}</span></td>
+                <td>${escapeHtml(s.text)}</td>
+            </tr>`;
+        });
+        html += "</tbody></table>";
+        return html;
+    }
+
+    function formatTime(sec) {
+        const m = Math.floor(sec / 60);
+        const s = (sec % 60).toFixed(1);
+        return m + ":" + (s < 10 ? "0" : "") + s;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Reset
+    resetBtn.addEventListener("click", () => {
+        resultCard.classList.remove("active");
+        uploadCard.style.display = "block";
+        selectedFile = null;
+        fileNameEl.textContent = "";
+        videoInput.value = "";
+        submitBtn.disabled = true;
+        progressBar.style.width = "0%";
+        progressBar.className = "progress-bar";
+        document.getElementById("error-area").innerHTML = "";
+        document.getElementById("download-area").style.display = "none";
+        document.getElementById("preview-area").style.display = "none";
+    });
+})();
+</script>
+</body>
+</html>

@@ -16,13 +16,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = ["flask>=3.0.0"]
 deepl = ["deepl>=1.16.0"]
 google = ["google-cloud-translate>=3.15.0"]
-all = ["deepl>=1.16.0", "google-cloud-translate>=3.15.0"]
-dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+all = ["flask>=3.0.0", "deepl>=1.16.0", "google-cloud-translate>=3.15.0"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0", "flask>=3.0.0"]
 
 [project.scripts]
 subgen = "subgen.cli:main"
+subgen-web = "subgen.web:main"
 
 [tool.setuptools.packages.find]
 include = ["subgen*"]
