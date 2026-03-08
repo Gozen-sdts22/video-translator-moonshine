@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "subgen"
+version = "0.1.0"
+description = "動画字幕自動生成ツール - Moonshine ASR + 翻訳APIによるローカル字幕生成パイプライン"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "pysubs2>=1.7.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+deepl = ["deepl>=1.16.0"]
+google = ["google-cloud-translate>=3.15.0"]
+all = ["deepl>=1.16.0", "google-cloud-translate>=3.15.0"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[project.scripts]
+subgen = "subgen.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["subgen*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
